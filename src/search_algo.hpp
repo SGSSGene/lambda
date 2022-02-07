@@ -48,6 +48,11 @@
 #include "view_dna_n_to_random.hpp"
 #include "view_reduce_to_bisulfite.hpp"
 
+
+#include <fmindex-collection/search/all.h>
+#include <search_schemes/generator/all.h>
+#include <search_schemes/expand.h>
+
 // ============================================================================
 // Forwards
 // ============================================================================
@@ -469,27 +474,72 @@ seedLooksPromising(LocalDataHolder<TGlobalHolder> const & lH,
     return false;
 }
 
-template <typename TGlobalHolder, typename TSeed>
+template <DbIndexType   c_indexType,
+          typename      TGlobalHolder,
+          typename      TSeed>
 inline void
 search_impl(LocalDataHolder<TGlobalHolder> & lH, TSeed && seed)
 {
-    namespace sc = seqan3::search_cfg;
 
-    seqan3::configuration cfg = sc::hit_all{}
-                              | sc::max_error_total{sc::error_count{static_cast<uint8_t>(lH.options.maxSeedDist)}}
-                              | sc::max_error_substitution{sc::error_count{static_cast<uint8_t>(lH.options.maxSeedDist)}}
-                              | sc::max_error_insertion{sc::error_count{0}}
-                              | sc::max_error_deletion{sc::error_count{0}}
-                              | sc::output_index_cursor{}
-                              | sc::on_result{[&lH] (auto && result)
-                                {
-                                    lH.cursor_buffer.push_back(result.index_cursor());
-                                }};
+    if constexpr (c_indexType == DbIndexType::FM_INDEX
+                  ||  c_indexType == DbIndexType::BI_FM_INDEX)
+    {
+        namespace sc = seqan3::search_cfg;
+        seqan3::configuration cfg = sc::hit_all{}
+                                  | sc::max_error_total{sc::error_count{static_cast<uint8_t>(lH.options.maxSeedDist)}}
+                                  | sc::max_error_substitution{sc::error_count{static_cast<uint8_t>(lH.options.maxSeedDist)}}
+                                  | sc::max_error_insertion{sc::error_count{0}}
+                                  | sc::max_error_deletion{sc::error_count{0}}
+                                  | sc::output_index_cursor{}
+                                  | sc::on_result{[&lH] (auto && result)
+                                    {
+                                        lH.cursor_buffer.push_back(result.index_cursor());
+                                    }};
 
-    seqan3::search(seed, lH.gH.indexFile.index, cfg);
+        seqan3::search(seed, lH.gH.indexFile.index, cfg);
+    }
+    else if constexpr (c_indexType == DbIndexType::BI_FM_INDEX_SGG)
+    {
+        //!TODO !FIXME This whole thing is not more than a big hack.
+        //Each search needs a search schemes in the same size of the query, to minimize recumpatioton i am using a global variable
+        using SS = decltype(search_schemes::expand(search_schemes::generator::pigeon_opt(0, lH.options.maxSeedDist), seed.size()));
+        thread_local static std::unordered_map<int8_t, std::tuple<SS, std::vector<std::vector<uint8_t>>>> map;
+        auto it = map.find(seed.size());
+        if (it == map.end())
+        {
+            auto refQueries = std::vector<std::vector<uint8_t>>{std::vector<uint8_t>(seed.size())};
+            auto searchScheme = search_schemes::expand(search_schemes::generator::pigeon_opt(0, lH.options.maxSeedDist), seed.size());
+            map[seed.size()] = {searchScheme, refQueries};
+            it = map.find(seed.size());
+        }
+        //!TODO !FIXME similar to the creation of the index, the +1 probably should be moved into the search function itself, so no copies are required
+        auto [search_scheme, queries] = it->second;
+        for (size_t i{0}; i < seed.size(); ++i)
+        {
+            queries[0][i] = seed[i].to_rank()+1;
+        }
+
+        fmindex_collection::search_pseudo::search</*editdistance=*/false>(
+            lH.gH.indexFile.index,
+            queries,
+            search_scheme,
+            [&](size_t queryId, auto cursor, size_t errors)
+            {
+                lH.cursor_buffer.push_back(cursor);
+            }
+        );
+    }
+    else
+    {
+        []<bool flag = false>()
+        {
+            static_assert(flag, "unsupported DbIndexType");
+        };
+    }
 }
 
-template <typename TGlobalHolder>
+template <DbIndexType   c_indexType,
+          typename      TGlobalHolder>
 inline void
 search(LocalDataHolder<TGlobalHolder> & lH)
 {
@@ -534,7 +584,7 @@ search(LocalDataHolder<TGlobalHolder> & lH)
 #endif
             // results are in cursor_buffer
             lH.cursor_buffer.clear();
-            search_impl(lH, lH.redQrySeqs[i] | seqan3::views::slice(seedBegin, seedBegin + lH.options.seedLength));
+            search_impl<c_indexType>(lH, lH.redQrySeqs[i] | seqan3::views::slice(seedBegin, seedBegin + lH.options.seedLength));
             for (auto & cursor : lH.cursor_buffer)
             {
                 size_t seedLength = lH.options.seedLength;
@@ -546,7 +596,23 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                     while ((seedBegin + seedLength < lH.redQrySeqs[i].size()) &&
                            (cursor.count() > desiredHits))
                     {
-                        cursor.extend_right(lH.redQrySeqs[i][seedBegin + seedLength]);
+                        if constexpr (c_indexType == DbIndexType::FM_INDEX
+                                      ||  c_indexType == DbIndexType::BI_FM_INDEX)
+                        {
+                            cursor.extend_right(lH.redQrySeqs[i][seedBegin + seedLength]);
+                        }
+                        else if constexpr (c_indexType == DbIndexType::BI_FM_INDEX_SGG)
+                        {
+                            cursor = cursor.extendRight((lH.redQrySeqs[i][seedBegin + seedLength]).to_rank()+1);
+                        }
+                        else
+                        {
+                            []<bool flag = false>()
+                            {
+                                static_assert(flag, "unsupported DbIndexType");
+                            };
+                        }
+
                         ++seedLength;
                     }
                 }
@@ -557,21 +623,52 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                 cursor.locate(lH.matches_buffer);
                 for (auto [ subjNo, subjOffset ] : lH.matches_buffer)
 #endif
-                for (auto [ subjNo, subjOffset ] : cursor.lazy_locate())
+                if constexpr (c_indexType == DbIndexType::FM_INDEX
+                              || c_indexType == DbIndexType::BI_FM_INDEX)
                 {
-                    TMatch m {static_cast<typename TMatch::TQId>(i),
-                              static_cast<typename TMatch::TSId>(subjNo),
-                              static_cast<typename TMatch::TPos>(seedBegin),
-                              static_cast<typename TMatch::TPos>(seedBegin + seedLength),
-                              static_cast<typename TMatch::TPos>(subjOffset),
-                              static_cast<typename TMatch::TPos>(subjOffset + seedLength)};
+                    for (auto [ subjNo, subjOffset ] : cursor.lazy_locate())
+                    {
+                        TMatch m {static_cast<typename TMatch::TQId>(i),
+                                  static_cast<typename TMatch::TSId>(subjNo),
+                                  static_cast<typename TMatch::TPos>(seedBegin),
+                                  static_cast<typename TMatch::TPos>(seedBegin + seedLength),
+                                  static_cast<typename TMatch::TPos>(subjOffset),
+                                  static_cast<typename TMatch::TPos>(subjOffset + seedLength)};
 
-                    ++lH.stats.hitsAfterSeeding;
+                        ++lH.stats.hitsAfterSeeding;
 
-                    if (!seedLooksPromising(lH, m))
-                        ++lH.stats.hitsFailedPreExtendTest;
-                    else
-                        lH.matches.push_back(m);
+                        if (!seedLooksPromising(lH, m))
+                            ++lH.stats.hitsFailedPreExtendTest;
+                        else
+                            lH.matches.push_back(m);
+                    }
+                }
+                else if (c_indexType == DbIndexType::BI_FM_INDEX_SGG)
+                {
+                    for (auto c{begin(cursor)}; c < end(cursor); ++c)
+                    {
+                        auto [subjNo, subjOffset] = lH.gH.indexFile.index.locate(c);
+                        TMatch m {static_cast<typename TMatch::TQId>(i),
+                                  static_cast<typename TMatch::TSId>(subjNo),
+                                  static_cast<typename TMatch::TPos>(seedBegin),
+                                  static_cast<typename TMatch::TPos>(seedBegin + seedLength),
+                                  static_cast<typename TMatch::TPos>(subjOffset),
+                                  static_cast<typename TMatch::TPos>(subjOffset + seedLength)};
+
+                        ++lH.stats.hitsAfterSeeding;
+
+                        if (!seedLooksPromising(lH, m))
+                            ++lH.stats.hitsFailedPreExtendTest;
+                        else
+                            lH.matches.push_back(m);
+                    }
+                }
+                else
+                {
+                    []<bool flag = false>()
+                    {
+                        static_assert(flag, "unsupported DbIndexType");
+                    };
                 }
             }
         }
