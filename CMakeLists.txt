@@ -55,6 +55,7 @@ endif ()
 
 add_subdirectory(src)
 add_subdirectory(submodules/fmindex-collection)
+add_subdirectory(submodules/libdivsufsort)
 
 
 # ----------------------------------------------------------------------------

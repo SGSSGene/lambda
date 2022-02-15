@@ -7,3 +7,6 @@
 [submodule "submodules/fmindex-collection"]
 	path = submodules/fmindex-collection
 	url = https://github.com/SGSSGene/fmindex-collection.git
+[submodule "submodules/libdivsufsort"]
+	path = submodules/libdivsufsort
+	url = https://github.com/y-256/libdivsufsort.git
