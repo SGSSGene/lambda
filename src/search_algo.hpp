@@ -523,7 +523,7 @@ search_impl(LocalDataHolder<TGlobalHolder> & lH, TSeed && seed)
             lH.gH.indexFile.index,
             queries,
             search_scheme,
-            [&](size_t queryId, auto cursor, size_t errors)
+            [&](size_t /*queryId*/, auto cursor, size_t /*errors*/)
             {
                 lH.cursor_buffer.push_back(cursor);
             }
