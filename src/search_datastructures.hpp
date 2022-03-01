@@ -383,6 +383,10 @@ public:
         {
             return std::type_identity<typename TIndex::cursor_type>{};
         }
+        else if constexpr (c_dbIndexType == DbIndexType::FM_INDEX_SGG)
+        {
+            return std::type_identity<fmindex_collection::FMIndexCursor<TIndex>>{};
+        }
         else if constexpr (c_dbIndexType == DbIndexType::BI_FM_INDEX_SGG)
         {
             return std::type_identity<fmindex_collection::BiFMIndexCursor<TIndex>>{};

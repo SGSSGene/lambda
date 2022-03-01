@@ -654,6 +654,12 @@ auto generateIndex(TStringSet                       & seqs,
             using TSpec = IndexSpec<seqan3::alphabet_size<TRedAlph>>;
             return std::type_identity<seqan3::bi_fm_index<TRedAlph, is_collection, TSpec>>{};
         }
+        else if constexpr (index_t == DbIndexType::FM_INDEX_SGG)
+        {
+            //!TODO which OccTable should we use?
+            using TOccTable = fmindex_collection::occtable::interleaved32::OccTable<TRedAlph::alphabet_size+1>;
+            return std::type_identity<fmindex_collection::FMIndex<TOccTable>>{};
+        }
         else if constexpr (index_t == DbIndexType::BI_FM_INDEX_SGG)
         {
             //!TODO which OccTable should we use?
@@ -683,7 +689,7 @@ auto generateIndex(TStringSet                       & seqs,
         {
             return TIndex{seqs};
         }
-        else if constexpr (index_t == DbIndexType::BI_FM_INDEX_SGG)
+        else if constexpr (index_t == DbIndexType::BI_FM_INDEX_SGG || index_t == DbIndexType::FM_INDEX_SGG)
         {
             //!TODO: needs better apporach (or do it inside the index?), the '0' is sentienal for inbetween and ending sequences
             std::vector<std::vector<uint8_t>> tmp;

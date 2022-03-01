@@ -51,6 +51,7 @@ enum class DbIndexType : uint8_t
 {
     FM_INDEX,
     BI_FM_INDEX,
+    FM_INDEX_SGG, // !TODO fm index, written by SimonGG included in the fmindex_collection
     BI_FM_INDEX_SGG, // !TODO fm index, written by SimonGG included in the fmindex_collection
 };
 
@@ -59,8 +60,9 @@ _indexEnumToName(DbIndexType const t)
 {
     switch (t)
     {
-        case DbIndexType::FM_INDEX:      return "fm_index";
-        case DbIndexType::BI_FM_INDEX:   return "bi_fm_index";
+        case DbIndexType::FM_INDEX:        return "fm_index";
+        case DbIndexType::BI_FM_INDEX:     return "bi_fm_index";
+        case DbIndexType::FM_INDEX_SGG:    return "fm_index_sgg";
         case DbIndexType::BI_FM_INDEX_SGG: return "bi_fm_index_sgg";
     }
 
@@ -75,6 +77,8 @@ _indexNameToEnum(std::string const t)
         return DbIndexType::BI_FM_INDEX;
     else if (t == "fm_index")
         return DbIndexType::FM_INDEX;
+    else if (t == "fm_index_sgg")
+        return DbIndexType::FM_INDEX_SGG;
     else if (t == "bi_fm_index_sgg")
         return DbIndexType::BI_FM_INDEX_SGG;
 
@@ -415,6 +419,12 @@ struct index_file
             using TSpec = IndexSpec<seqan3::alphabet_size<TRedAlph>>;
             return std::type_identity<seqan3::bi_fm_index<TRedAlph, is_collection, TSpec>>{};
         }
+        else if constexpr (dbIndexType == DbIndexType::FM_INDEX_SGG)
+        {
+            //!TODO which OccTable should we use?
+            using TOccTable = fmindex_collection::occtable::interleaved32::OccTable<TRedAlph::alphabet_size+1>;
+            return std::type_identity<fmindex_collection::FMIndex<TOccTable>>{};
+        }
         else if constexpr (dbIndexType == DbIndexType::BI_FM_INDEX_SGG)
         {
             //!TODO which OccTable should we use?
@@ -431,7 +441,8 @@ struct index_file
     }())::type;
 
     //!TODO special c'tor that supports 'default' initialization to deserialize
-    TIndex index = []() { if constexpr (dbIndexType == DbIndexType::BI_FM_INDEX_SGG) return TIndex{fmindex_collection::cereal_tag{}};
+    TIndex index = []() { if constexpr (dbIndexType == DbIndexType::BI_FM_INDEX_SGG
+                                        || dbIndexType == DbIndexType::FM_INDEX_SGG) return TIndex{fmindex_collection::cereal_tag{}};
                           else return TIndex{}; }();
 
     template <typename TArchive>

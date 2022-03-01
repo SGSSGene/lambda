@@ -116,7 +116,7 @@ void parseCommandLine(LambdaIndexerOptions & options, int argc, char const ** ar
 
     std::string dbIndexTypeTmp = "fm";
     parser.add_option(dbIndexTypeTmp, '\0', "db-index-type", "FM-Index oder bidirectional FM-Index.",
-        seqan3::option_spec::advanced, seqan3::value_list_validator{"fm", "bifm", "bifm_sgg"});
+        seqan3::option_spec::advanced, seqan3::value_list_validator{"fm", "bifm", "fm_sgg", "bifm_sgg"});
 
     parser.add_option(options.truncateIDs, '\0', "truncate-ids",
         "Truncate IDs at first whitespace. This saves a lot of space and is irrelevant for all LAMBDA output formats "
@@ -191,6 +191,8 @@ void parseCommandLine(LambdaIndexerOptions & options, int argc, char const ** ar
         options.indexFileOptions.indexType = DbIndexType::FM_INDEX;
     else if (dbIndexTypeTmp == "bifm")
         options.indexFileOptions.indexType = DbIndexType::BI_FM_INDEX;
+    else if (dbIndexTypeTmp == "fm_sgg")
+        options.indexFileOptions.indexType = DbIndexType::FM_INDEX_SGG;
     else if (dbIndexTypeTmp == "bifm_sgg")
         options.indexFileOptions.indexType = DbIndexType::BI_FM_INDEX_SGG;
     else

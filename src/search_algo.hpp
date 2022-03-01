@@ -498,6 +498,26 @@ search_impl(LocalDataHolder<TGlobalHolder> & lH, TSeed && seed)
 
         seqan3::search(seed, lH.gH.indexFile.index, cfg);
     }
+    else if constexpr (c_indexType == DbIndexType::FM_INDEX_SGG)
+    {
+        thread_local static auto queries = std::vector<std::vector<uint8_t>>{{}};
+        queries.back().resize(seed.size());
+        for (size_t i{0}; i < seed.size(); ++i)
+        {
+            queries[0][i] = seed[i].to_rank()+1;
+        }
+
+        fmindex_collection::search_backtracking::search(
+            lH.gH.indexFile.index,
+            queries,
+            lH.options.maxSeedDist,
+            [&](size_t /*queryId*/, auto cursor, size_t /*errors*/)
+            {
+                lH.cursor_buffer.push_back(cursor);
+            }
+        );
+    }
+
     else if constexpr (c_indexType == DbIndexType::BI_FM_INDEX_SGG)
     {
         //!TODO !FIXME This whole thing is not more than a big hack.
@@ -601,6 +621,11 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                         {
                             cursor.extend_right(lH.redQrySeqs[i][seedBegin + seedLength]);
                         }
+                        else if constexpr (c_indexType == DbIndexType::FM_INDEX_SGG)
+                        {
+                            //!TODO Only extend left possible, what to do?
+//                            cursor = cursor.extendLeft((lH.redQrySeqs[i][seedBegin + seedLength]).to_rank()+1);
+                        }
                         else if constexpr (c_indexType == DbIndexType::BI_FM_INDEX_SGG)
                         {
                             cursor = cursor.extendRight((lH.redQrySeqs[i][seedBegin + seedLength]).to_rank()+1);
@@ -643,7 +668,8 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                             lH.matches.push_back(m);
                     }
                 }
-                else if (c_indexType == DbIndexType::BI_FM_INDEX_SGG)
+                else if (c_indexType == DbIndexType::BI_FM_INDEX_SGG
+                         || c_indexType == DbIndexType::FM_INDEX_SGG)
                 {
                     for (auto c{begin(cursor)}; c < end(cursor); ++c)
                     {
