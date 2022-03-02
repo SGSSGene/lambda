@@ -422,13 +422,13 @@ struct index_file
         else if constexpr (dbIndexType == DbIndexType::FM_INDEX_SGG)
         {
             //!TODO which OccTable should we use?
-            using TOccTable = fmindex_collection::occtable::interleaved32::OccTable<TRedAlph::alphabet_size+1>;
+            using TOccTable = fmindex_collection::occtable::interleavedEPR32V2::OccTable<TRedAlph::alphabet_size+1>;
             return std::type_identity<fmindex_collection::FMIndex<TOccTable>>{};
         }
         else if constexpr (dbIndexType == DbIndexType::BI_FM_INDEX_SGG)
         {
             //!TODO which OccTable should we use?
-            using TOccTable = fmindex_collection::occtable::interleaved32::OccTable<TRedAlph::alphabet_size+1>;
+            using TOccTable = fmindex_collection::occtable::interleavedEPR32V2::OccTable<TRedAlph::alphabet_size+1>;
             return std::type_identity<fmindex_collection::BiFMIndex<TOccTable>>{};
         }
         else

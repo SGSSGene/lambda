@@ -50,6 +50,7 @@
 
 
 #include <fmindex-collection/search/all.h>
+#include <fmindex-collection/locate.h>
 #include <search_schemes/generator/all.h>
 #include <search_schemes/expand.h>
 
@@ -671,9 +672,7 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                 else if (c_indexType == DbIndexType::BI_FM_INDEX_SGG
                          || c_indexType == DbIndexType::FM_INDEX_SGG)
                 {
-                    for (auto c{begin(cursor)}; c < end(cursor); ++c)
-                    {
-                        auto [subjNo, subjOffset] = lH.gH.indexFile.index.locate(c);
+                    for (auto [subjNo, subjOffset] : fmindex_collection::LocateLinear{lH.gH.indexFile.index, cursor}) {
                         TMatch m {static_cast<typename TMatch::TQId>(i),
                                   static_cast<typename TMatch::TSId>(subjNo),
                                   static_cast<typename TMatch::TPos>(seedBegin),
