@@ -505,7 +505,8 @@ search_impl(LocalDataHolder<TGlobalHolder> & lH, TSeed && seed)
         queries.back().resize(seed.size());
         for (size_t i{0}; i < seed.size(); ++i)
         {
-            queries[0][i] = seed[i].to_rank()+1;
+            //!TODO reversing the text, since we are using ReverseFMIndex (shouldn't this be something included in the search function?)
+            queries[0][seed.size()-i-1] = seed[i].to_rank()+1;
         }
 
         fmindex_collection::search_backtracking::search(
@@ -624,8 +625,8 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                         }
                         else if constexpr (c_indexType == DbIndexType::FM_INDEX_SGG)
                         {
-                            //!TODO Only extend left possible, what to do?
-//                            cursor = cursor.extendLeft((lH.redQrySeqs[i][seedBegin + seedLength]).to_rank()+1);
+                            //!TODO since it is a reversed index, we need to extend to the left (this seem confusing, I should rethink naming)
+                            cursor = cursor.extendLeft((lH.redQrySeqs[i][seedBegin + seedLength]).to_rank()+1);
                         }
                         else if constexpr (c_indexType == DbIndexType::BI_FM_INDEX_SGG)
                         {
@@ -673,6 +674,9 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                          || c_indexType == DbIndexType::FM_INDEX_SGG)
                 {
                     for (auto [subjNo, subjOffset] : fmindex_collection::LocateLinear{lH.gH.indexFile.index, cursor}) {
+                        if (c_indexType == DbIndexType::FM_INDEX_SGG) {
+                            subjOffset -= seedLength;
+                        }
                         TMatch m {static_cast<typename TMatch::TQId>(i),
                                   static_cast<typename TMatch::TSId>(subjNo),
                                   static_cast<typename TMatch::TPos>(seedBegin),

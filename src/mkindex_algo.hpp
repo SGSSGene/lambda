@@ -658,7 +658,7 @@ auto generateIndex(TStringSet                       & seqs,
         {
             //!TODO which OccTable should we use?
             using TOccTable = fmindex_collection::occtable::interleavedEPR32V2::OccTable<TRedAlph::alphabet_size+1>;
-            return std::type_identity<fmindex_collection::FMIndex<TOccTable>>{};
+            return std::type_identity<fmindex_collection::ReverseFMIndex<TOccTable>>{};
         }
         else if constexpr (index_t == DbIndexType::BI_FM_INDEX_SGG)
         {
