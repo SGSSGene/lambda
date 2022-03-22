@@ -489,6 +489,63 @@ search_impl(LocalDataHolder<TGlobalHolder> & lH, TSeed && seed)
     seqan3::search(seed, lH.gH.indexFile.index, cfg);
 }
 
+template <typename TGlobalHolder, typename TSeed>
+inline void
+searchHalfExactImpl(LocalDataHolder<TGlobalHolder> & lH, TSeed && seed)
+{
+    using alph_t = std::ranges::range_value_t<TSeed>;
+    namespace sc = seqan3::search_cfg;
+    seqan3::configuration cfg = sc::hit_all{}
+                              | sc::max_error_total{sc::error_count{0}}
+                              | sc::max_error_substitution{sc::error_count{0}}
+                              | sc::max_error_insertion{sc::error_count{0}}
+                              | sc::max_error_deletion{sc::error_count{0}}
+                              | sc::output_index_cursor{}
+                              | sc::on_result{[&lH] (auto && result)
+                                {
+                                    lH.cursor_tmp_buffer.emplace_back(result.index_cursor(), 0);
+                                }};
+
+    lH.cursor_tmp_buffer.clear();
+    lH.cursor_tmp_buffer2.clear();
+    size_t const seedFirstHalfLength = lH.options.seedHalfExact ? lH.options.seedLength / 2 : lH.options.seedLength;
+    size_t const seedSecondHalfLength = lH.options.seedLength - seedFirstHalfLength;
+
+    seqan3::search(seed | seqan3::views::slice(0, seedFirstHalfLength), lH.gH.indexFile.index, cfg);
+
+    // manual backtracking
+    for (size_t i = 0; i < seedSecondHalfLength; ++i)
+    {
+        auto seed_at_i = seed[seedFirstHalfLength + i];
+
+        for (auto & [ cursor, error_count ] : lH.cursor_tmp_buffer)
+        {
+            for (size_t r = 0; r < seqan3::alphabet_size<alph_t>; ++r)
+            {
+                // exact extension
+                if (alph_t cur_letter = seqan3::assign_rank_to(r, alph_t{}); cur_letter == seed_at_i)
+                {
+                    lH.cursor_tmp_buffer2.emplace_back(cursor, error_count);
+                    if (!lH.cursor_tmp_buffer2.back().first.extend_right(cur_letter))
+                        lH.cursor_tmp_buffer2.pop_back();
+                }
+                else if (error_count < lH.options.maxSeedDist)
+                {
+                    lH.cursor_tmp_buffer2.emplace_back(cursor, error_count + 1);
+                    if (!lH.cursor_tmp_buffer2.back().first.extend_right(cur_letter))
+                        lH.cursor_tmp_buffer2.pop_back();
+                }
+            }
+        }
+        lH.cursor_tmp_buffer.clear();
+        std::swap(lH.cursor_tmp_buffer, lH.cursor_tmp_buffer2);
+    }
+
+    lH.cursor_buffer.reserve(lH.cursor_buffer.size() + lH.cursor_tmp_buffer.size());
+    std::ranges::copy(lH.cursor_tmp_buffer | std::views::elements<0>, std::back_inserter(lH.cursor_buffer));
+    lH.cursor_tmp_buffer.clear();
+}
+
 template <typename TGlobalHolder>
 inline void
 search(LocalDataHolder<TGlobalHolder> & lH)
@@ -516,6 +573,8 @@ search(LocalDataHolder<TGlobalHolder> & lH)
         if (lH.redQrySeqs[i].size() < lH.options.seedLength)
             continue;
 
+        size_t hitsThisSeq = 0;
+
         for (size_t seedBegin = 0; /* below */; seedBegin += lH.options.seedOffset)
         {
             // skip proteine 'X' or Dna 'N'
@@ -534,7 +593,11 @@ search(LocalDataHolder<TGlobalHolder> & lH)
 #endif
             // results are in cursor_buffer
             lH.cursor_buffer.clear();
-            search_impl(lH, lH.redQrySeqs[i] | seqan3::views::slice(seedBegin, seedBegin + lH.options.seedLength));
+            if (lH.options.seedHalfExact)
+                searchHalfExactImpl(lH, lH.redQrySeqs[i] | seqan3::views::slice(seedBegin, seedBegin + lH.options.seedLength));
+            else
+                search_impl(lH, lH.redQrySeqs[i] | seqan3::views::slice(seedBegin, seedBegin + lH.options.seedLength));
+
             for (auto & cursor : lH.cursor_buffer)
             {
                 size_t seedLength = lH.options.seedLength;
@@ -544,9 +607,9 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                 {
                     // This aborts when we fall under the threshold
                     while ((seedBegin + seedLength < lH.redQrySeqs[i].size()) &&
-                           (cursor.count() > desiredHits))
+                           ((hitsThisSeq + cursor.count()) > desiredHits) &&
+                           cursor.extend_right(lH.redQrySeqs[i][seedBegin + seedLength]))
                     {
-                        cursor.extend_right(lH.redQrySeqs[i][seedBegin + seedLength]);
                         ++seedLength;
                     }
                 }
@@ -569,9 +632,14 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                     ++lH.stats.hitsAfterSeeding;
 
                     if (!seedLooksPromising(lH, m))
+                    {
                         ++lH.stats.hitsFailedPreExtendTest;
+                    }
                     else
+                    {
                         lH.matches.push_back(m);
+                        ++hitsThisSeq;
+                    }
                 }
             }
         }

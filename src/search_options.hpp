@@ -68,6 +68,7 @@ struct LambdaOptions : public SharedOptions
     bool            versionInformationToOutputFile = true;
     size_t          maximumQueryBlockSize = 10;
 
+    bool            seedHalfExact = false;
     bool            adaptiveSeeding = true;
 
     unsigned        seedLength  = 0;
@@ -256,6 +257,9 @@ void parseCommandLine(LambdaOptions & options, int argc, char const ** argv)
 
     parser.add_option(options.adaptiveSeeding, '\0', "adaptive-seeding",
         "Grow the seed if it has too many hits (low complexity filter).", seqan3::option_spec::advanced);
+
+   parser.add_option(options.seedHalfExact, '\0', "seed-half-exact",
+        "Allow errors only in second half of seed.", seqan3::option_spec::advanced);
 
     unsigned defaultSeedLength = options.nucleotide_mode ? 14 : 10;
 
