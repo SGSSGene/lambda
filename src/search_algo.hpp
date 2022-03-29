@@ -494,24 +494,35 @@ inline void
 searchHalfExactImpl(LocalDataHolder<TGlobalHolder> & lH, TSeed && seed)
 {
     using alph_t = std::ranges::range_value_t<TSeed>;
-    namespace sc = seqan3::search_cfg;
-    seqan3::configuration cfg = sc::hit_all{}
-                              | sc::max_error_total{sc::error_count{0}}
-                              | sc::max_error_substitution{sc::error_count{0}}
-                              | sc::max_error_insertion{sc::error_count{0}}
-                              | sc::max_error_deletion{sc::error_count{0}}
-                              | sc::output_index_cursor{}
-                              | sc::on_result{[&lH] (auto && result)
-                                {
-                                    lH.cursor_tmp_buffer.emplace_back(result.index_cursor(), 0);
-                                }};
+//     namespace sc = seqan3::search_cfg;
+//     seqan3::configuration cfg = sc::hit_all{}
+//                               | sc::max_error_total{sc::error_count{0}}
+//                               | sc::max_error_substitution{sc::error_count{0}}
+//                               | sc::max_error_insertion{sc::error_count{0}}
+//                               | sc::max_error_deletion{sc::error_count{0}}
+//                               | sc::output_index_cursor{}
+//                               | sc::on_result{[&lH] (auto && result)
+//                                 {
+//                                     lH.cursor_tmp_buffer.emplace_back(result.index_cursor(), 0);
+//                                 }};
 
     lH.cursor_tmp_buffer.clear();
     lH.cursor_tmp_buffer2.clear();
-    size_t const seedFirstHalfLength = lH.options.seedHalfExact ? lH.options.seedLength / 2 : lH.options.seedLength;
+    size_t const seedFirstHalfLength = lH.options.seedLength / 2;
     size_t const seedSecondHalfLength = lH.options.seedLength - seedFirstHalfLength;
 
-    seqan3::search(seed | seqan3::views::slice(0, seedFirstHalfLength), lH.gH.indexFile.index, cfg);
+//     seqan3::search(seed | seqan3::views::slice(0, seedFirstHalfLength), lH.gH.indexFile.index, cfg);
+
+    lH.cursor_tmp_buffer.emplace_back(lH.gH.indexFile.index.cursor(), 0);
+    auto & c = lH.cursor_tmp_buffer.back().first;
+
+    // extend by half exactly
+    for (size_t i = 0; i < seedFirstHalfLength; ++i)
+    {
+        if (!c.extend_right(seed[i]))
+            return;
+    }
+
 
     // manual backtracking
     for (size_t i = 0; i < seedSecondHalfLength; ++i)
@@ -520,21 +531,22 @@ searchHalfExactImpl(LocalDataHolder<TGlobalHolder> & lH, TSeed && seed)
 
         for (auto & [ cursor, error_count ] : lH.cursor_tmp_buffer)
         {
-            for (size_t r = 0; r < seqan3::alphabet_size<alph_t>; ++r)
+            if (error_count < lH.options.maxSeedDist)
             {
-                // exact extension
-                if (alph_t cur_letter = seqan3::assign_rank_to(r, alph_t{}); cur_letter == seed_at_i)
+                for (size_t r = 0; r < seqan3::alphabet_size<alph_t>; ++r)
                 {
-                    lH.cursor_tmp_buffer2.emplace_back(cursor, error_count);
+                    alph_t cur_letter = seqan3::assign_rank_to(r, alph_t{});
+
+                    lH.cursor_tmp_buffer2.emplace_back(cursor, error_count + (cur_letter != seed_at_i));
                     if (!lH.cursor_tmp_buffer2.back().first.extend_right(cur_letter))
                         lH.cursor_tmp_buffer2.pop_back();
                 }
-                else if (error_count < lH.options.maxSeedDist)
-                {
-                    lH.cursor_tmp_buffer2.emplace_back(cursor, error_count + 1);
-                    if (!lH.cursor_tmp_buffer2.back().first.extend_right(cur_letter))
-                        lH.cursor_tmp_buffer2.pop_back();
-                }
+            }
+            else
+            {
+                lH.cursor_tmp_buffer2.emplace_back(cursor, error_count);
+                if (!lH.cursor_tmp_buffer2.back().first.extend_right(seed_at_i))
+                    lH.cursor_tmp_buffer2.pop_back();
             }
         }
         lH.cursor_tmp_buffer.clear();
@@ -565,18 +577,37 @@ search(LocalDataHolder<TGlobalHolder> & lH)
      * per seed and multiple seeds per read).
      * A strategy that takes into account the previously found hits for the current read did not improve results.
      */
-    size_t const heuristicFactor = 5;
-    size_t const desiredHits = lH.options.maxMatches * heuristicFactor;
+//     size_t const heuristicFactor = 5;
+//     size_t const desiredHits = lH.options.maxMatches * heuristicFactor;
+
+    size_t const hitPerFinalHit = (double)lH.stats.hitsAfterSeeding / std::max<double>(lH.stats.hitsFinal, 1.0);
+//     double const heuristicFactor = 0.5;
+//     double const desiredHitsPerSeq = (double)lH.options.maxMatches * hitPerFinalHit * heuristicFactor;
+
+    size_t hitsThisSeq = 0;
+    size_t needlesSum = 0;
 
     for (size_t i = 0; i < std::ranges::size(lH.redQrySeqs); ++i)
     {
         if (lH.redQrySeqs[i].size() < lH.options.seedLength)
             continue;
 
-        size_t hitsThisSeq = 0;
+//         double const seedsPerSeq = lH.redQrySeqs[i].size() / lH.options.seedLength;
+//         double const desiredHitsPerSeed = desiredHitsPerSeq / seedsPerSeq;
+
+
+        if (i % TGlobalHolder::qryNumFrames == 0) // reset on every "real" new read
+        {
+            hitsThisSeq = 0;
+            needlesSum = 0;
+            for (size_t j = 0; j < TGlobalHolder::qryNumFrames; ++j)
+                needlesSum += lH.redQrySeqs[i + j].size();
+        }
 
         for (size_t seedBegin = 0; /* below */; seedBegin += lH.options.seedOffset)
         {
+//             size_t hitsThisSeed = 0;
+
             // skip proteine 'X' or Dna 'N'
             while ((seedBegin <= (lH.redQrySeqs[i].size() - lH.options.seedLength)) &&
                    (lH.transQrySeqs[i][seedBegin] == seqan3::assign_char_to('`', TTransAlph{}))) // assume that '°' gets converted to UNKNOWN
@@ -586,17 +617,21 @@ search(LocalDataHolder<TGlobalHolder> & lH)
             if (seedBegin > (lH.redQrySeqs[i].size() - lH.options.seedLength))
                 break;
 
-#if 0 // official search interface currently slow
-            auto results = seqan3::search(lH.redQrySeqs[i] | seqan3::views::slice(seedBegin, seedBegin + lH.options.seedLength),
-                                          lH.gH.indexFile.index,
-                                          cfg);
-#endif
             // results are in cursor_buffer
             lH.cursor_buffer.clear();
             if (lH.options.seedHalfExact)
                 searchHalfExactImpl(lH, lH.redQrySeqs[i] | seqan3::views::slice(seedBegin, seedBegin + lH.options.seedLength));
             else
                 search_impl(lH, lH.redQrySeqs[i] | seqan3::views::slice(seedBegin, seedBegin + lH.options.seedLength));
+
+            if (lH.options.adaptiveSeeding)
+                lH.offset_modifier_buffer.clear();
+
+//             size_t offset_modifier = 0;
+//             size_t offset_sum = 0;
+//             size_t offset_count = 0;
+
+//             bool first_cursor = true;
 
             for (auto & cursor : lH.cursor_buffer)
             {
@@ -605,21 +640,64 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                 // elongate seeds
                 if (lH.options.adaptiveSeeding)
                 {
+#if 0 // lambda2 mode BUT NOT
+                    size_t desiredOccs = hitsThisSeq >= lH.options.maxMatches
+                                       ? 1
+                                       : (lH.options.maxMatches - hitsThisSeq) * 10 /
+                                std::max<size_t>((needlesSum - seedBegin) / lH.options.seedOffset, 1ul);
+#endif
+                    size_t desiredOccs = hitsThisSeq >= lH.options.maxMatches * hitPerFinalHit
+                                       ? 1
+                                       : (lH.options.maxMatches * hitPerFinalHit - hitsThisSeq) /
+                                std::max<size_t>((needlesSum - seedBegin) / lH.options.seedOffset, 1ul);
+
+                    if (desiredOccs == 0)
+                        desiredOccs = 1;
+
+
+
+
+//                     // This aborts when we fall under the threshold
+//                     while ((seedBegin + seedLength < lH.redQrySeqs[i].size()) &&
+//                            ((hitsThisSeed + cursor.count()) > desiredHitsPerSeed) &&
+//                            cursor.extend_right(lH.redQrySeqs[i][seedBegin + seedLength]))
+//                     {
+//                         ++seedLength;
+//                     }
+
                     // This aborts when we fall under the threshold
-                    while ((seedBegin + seedLength < lH.redQrySeqs[i].size()) &&
-                           ((hitsThisSeq + cursor.count()) > desiredHits) &&
-                           cursor.extend_right(lH.redQrySeqs[i][seedBegin + seedLength]))
+                    size_t old_count = cursor.count();
+                    while (seedBegin + seedLength < lH.redQrySeqs[i].size())
                     {
+                        if (!cursor.extend_right(lH.redQrySeqs[i][seedBegin + seedLength]))
+                            break;
+
+                        size_t new_count = cursor.count();
+
+//                         if ((desiredHitsPerSeed > (hitsThisSeed + cursor.count())) &&
+
+//                         double const percentOfSeqRemaing = 1 - (((double)seedBegin + ((double)seedLength / 2)) / lH.redQrySeqs[i].size());
+//                         double const remainingSeeds = (double)(lH.redQrySeqs[i].size() - seedBegin) / seedLength;
+//                         double const remainingDesiredHits = desiredHitsPerSeq - hitsThisSeq - hitsThisSeed;
+//
+//                         if ((remainingDesiredHits / remainingSeeds > (hitPerFinalHit * cursor.count())) &&
+                        if (cursor.count() < desiredOccs && (new_count < old_count)) // we always continue to extend if we don't loose anything
+                        {
+                            break;
+                        }
+
                         ++seedLength;
+                        old_count = new_count;
                     }
+
+//                     if (first_cursor)
+//                     {
+//                         offset_modifier = std::max<size_t>(offset_modifier, seedLength - lH.options.seedLength);
+//                         first_cursor = false;
+//                     }
                 }
 
                 // locate hits
-#if 0 // use this if SeqAn3 gets out-parameter interface for locate
-                lH.matches_buffer.clear();
-                cursor.locate(lH.matches_buffer);
-                for (auto [ subjNo, subjOffset ] : lH.matches_buffer)
-#endif
                 for (auto [ subjNo, subjOffset ] : cursor.lazy_locate())
                 {
                     TMatch m {static_cast<typename TMatch::TQId>(i),
@@ -630,18 +708,51 @@ search(LocalDataHolder<TGlobalHolder> & lH)
                               static_cast<typename TMatch::TPos>(subjOffset + seedLength)};
 
                     ++lH.stats.hitsAfterSeeding;
-
+#if 0
+                    if constexpr (seqan3::alphabet<decltype(lH.redQrySeqs[0][0])>)
+                    seqan3::debug_stream << m.qryId << '\t' << m.qryStart << '\t' << m.qryEnd << '\t'
+              << lH.gH.indexFile.ids[m.subjId] << '\t'<< m.subjStart << '\t' << m.subjEnd << '\t'
+              << (lH.redQrySeqs[m.qryId] | seqan3::views::slice(m.qryStart, m.qryEnd)) << '\t'
+              << (lH.gH.redSbjSeqs[m.subjId] | seqan3::views::slice(m.subjStart, m.subjEnd)) << '\t';
+#endif
                     if (!seedLooksPromising(lH, m))
                     {
                         ++lH.stats.hitsFailedPreExtendTest;
+//                         seqan3::debug_stream << "fail\n";
                     }
                     else
                     {
+//                         seqan3::debug_stream << "success\n";
                         lH.matches.push_back(m);
                         ++hitsThisSeq;
+//                         ++hitsThisSeed;
+#ifdef LAMBDA_MICRO_STATS
+                        lH.stats.seedLengths.push_back(seedLength);
+#endif
+//                         if (lH.options.adaptiveSeeding)
+//                         {
+// //                             offset_sum += seedLength - lH.options.seedLength;
+// //                             ++offset_count;
+// //                             lH.offset_modifier_buffer.push_back(seedLength - lH.options.seedLength);
+//                             offset_modifier = std::max<size_t>(offset_modifier, seedLength - lH.options.seedLength);
+//                         }
                     }
                 }
             }
+
+
+//             if (lH.options.adaptiveSeeding && !lH.offset_modifier_buffer.empty())
+//             {
+//                 std::ranges::sort(lH.offset_modifier_buffer);
+//                 seedBegin += lH.offset_modifier_buffer.back();//[lH.offset_modifier_buffer.size() / 2];
+//             }
+
+//             if (lH.options.adaptiveSeeding && offset_count > 0)
+//                 seedBegin += offset_sum / offset_count;
+
+//             seedBegin += offset_modifier;
+
+//             hitsThisSeq += hitsThisSeed;
         }
     }
 }

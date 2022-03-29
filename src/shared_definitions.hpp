@@ -220,8 +220,8 @@ inline constexpr uint64_t currentIndexGeneration = 0;
 // ==========================================================================
 
 /* default */
-template <size_t>
-using IndexSpec = seqan3::default_sdsl_index_type;
+// template <size_t>
+// using IndexSpec = seqan3::default_sdsl_index_type;
 
 /* default, spelled out */
 // template <size_t>
@@ -248,13 +248,13 @@ using IndexSpec = seqan3::default_sdsl_index_type;
 //                                 sdsl::plain_byte_alphabet>;
 
 /* epr, in experimental branch */
-// template <size_t alph_size>
-// using IndexSpec = sdsl::csa_wt<sdsl::wt_epr<alph_size + 2>, // +1 for sentinels, +1 for collection
-//                                 16,
-//                                 1'0000'000,
-//                                 sdsl::sa_order_sa_sampling<>,
-//                                 sdsl::isa_sampling<>,
-//                                 sdsl::plain_byte_alphabet>;
+template <size_t alph_size>
+using IndexSpec = sdsl::csa_wt<sdsl::wt_epr<alph_size + 2>, // +1 for sentinels, +1 for collection
+                                2,
+                                1'0000'000,
+                                sdsl::sa_order_sa_sampling<>,
+                                sdsl::isa_sampling<>,
+                                sdsl::plain_byte_alphabet>;
 
 // ==========================================================================
 //  Misc. aliases

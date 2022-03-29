@@ -246,11 +246,11 @@ void parseCommandLine(LambdaOptions & options, int argc, char const ** argv)
 #ifdef _OPENMP
     parser.add_option(options.threads, 't', "threads", "Number of threads to run concurrently.",
         seqan3::option_spec::advanced,
-        seqan3::arithmetic_range_validator{1, 1000});
+        seqan3::arithmetic_range_validator{2, 1000});
 #else
     parser.add_option(options.threads, 't', "threads",
         "LAMBDA BUILT WITHOUT OPENMP; setting this option has no effect.", seqan3::option_spec::advanced,
-        seqan3::arithmetic_range_validator{1, 1});
+        seqan3::arithmetic_range_validator{2, 2});
 #endif
 
     parser.add_section("Seeding / Filtration");
